@@ -18,13 +18,11 @@ import (
 	"net/http"
 	"runtime"
 	. "siploadbalancer/global"
-	"siploadbalancer/sip"
 )
 
 func StartWS(ip net.IP) {
 	r := http.NewServeMux()
 
-	r.HandleFunc("GET /api/v1/session", serveSession)
 	r.HandleFunc("GET /api/v1/stats", serveStats)
 	r.Handle("GET /metrics", Prometrics.Handler())
 	r.HandleFunc("GET /", serveHome)
@@ -43,21 +41,7 @@ func StartWS(ip net.IP) {
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("<h1>Newkah API Webserver</h1>\n"))
-}
-
-func serveSession(w http.ResponseWriter, r *http.Request) {
-	lst := []string{}
-	for _, ses := range sip.Sessions.Range() {
-		lst = append(lst, ses.String())
-	}
-
-	data := struct {
-		Sessions []string
-	}{Sessions: lst}
-
-	response, _ := json.Marshal(data)
-	w.Write(response)
+	w.Write([]byte(fmt.Sprintf("<h1> %s API Webserver</h1>\n", BUE)))
 }
 
 func serveStats(w http.ResponseWriter, r *http.Request) {
