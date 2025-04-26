@@ -3,14 +3,24 @@ package global
 import (
 	"fmt"
 	"log"
+	"net"
 	"regexp"
 	"runtime"
 	"strings"
 
+	"slices"
+
 	"golang.org/x/exp/rand"
 )
 
-func Str2int[T int | int8 | int16 | int32 | int64](s string) T {
+func AreUAddrsEqual(addr1, addr2 *net.UDPAddr) bool {
+	if addr1 == nil || addr2 == nil {
+		return addr1 == addr2
+	}
+	return addr1.IP.Equal(addr2.IP) && addr1.Port == addr2.Port && addr1.Zone == addr2.Zone
+}
+
+func Str2Int[T int | int8 | int16 | int32 | int64](s string) T {
 	var out T
 	if len(s) == 0 {
 		return out
@@ -21,6 +31,9 @@ func Str2int[T int | int8 | int16 | int32 | int64](s string) T {
 		idx++
 	}
 	for i := idx; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return out
+		}
 		out = out*10 + T(s[i]-'0')
 	}
 	if isN {
@@ -34,10 +47,91 @@ func Str2uint[T uint | uint8 | uint16 | uint32 | uint64](s string) T {
 	if len(s) == 0 {
 		return out
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		out = out*10 + T(s[i]-'0')
 	}
 	return out
+}
+
+func Str2Uint[T uint | uint8 | uint16 | uint32 | uint64](s string) T {
+	var out T
+	if len(s) == 0 {
+		return out
+	}
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return out
+		}
+		out = out*10 + T(s[i]-'0')
+	}
+	return out
+}
+
+func Int2Str(val int) string {
+	if val == 0 {
+		return "0"
+	}
+	buf := make([]byte, 10)
+	return int2str(buf, val)
+}
+
+func Uint16ToStr(val uint16) string {
+	if val == 0 {
+		return "0"
+	}
+	buf := make([]byte, 5)
+	return uint2str(buf, val)
+}
+
+// Uint32ToStr converts a uint32 to its string representation.
+func Uint32ToStr(val uint32) string {
+	if val == 0 {
+		return "0"
+	}
+	buf := make([]byte, 10)
+	return uint2str(buf, val)
+}
+
+// Uint64ToStr converts a uint64 to its string representation.
+func Uint64ToStr(val uint64) string {
+	if val == 0 {
+		return "0"
+	}
+	buf := make([]byte, 20)
+	return uint2str(buf, val)
+}
+
+func uint2str[T uint16 | uint32 | uint64](buf []byte, val T) string {
+	i := len(buf)
+	for val >= 10 {
+		i--
+		buf[i] = '0' + byte(val%10)
+		val /= 10
+	}
+	i--
+	buf[i] = '0' + byte(val)
+
+	return string(buf[i:])
+}
+
+func int2str[T int | int8 | int16 | int32 | int64](buf []byte, val T) string {
+	isNeg := val < 0
+	if isNeg {
+		val *= -1
+	}
+	i := len(buf)
+	for val >= 10 {
+		i--
+		buf[i] = '0' + byte(val%10)
+		val /= 10
+	}
+	i--
+	buf[i] = '0' + byte(val)
+
+	if isNeg {
+		return "-" + string(buf[i:])
+	}
+	return string(buf[i:])
 }
 
 func GetNextIndex(pdu []byte, markstrng string) int {
@@ -56,11 +150,18 @@ func GetNextIndex(pdu []byte, markstrng string) int {
 	return -1
 }
 
+func BuildUDPAddr(host, port string) (*net.UDPAddr, error) {
+	if port == "" {
+		return net.ResolveUDPAddr("udp", host+":5060")
+	}
+	return net.ResolveUDPAddr("udp", host+":"+port)
+}
+
 func LogCallStack(r any) {
-	log.Println(fmt.Sprintf("Panic Recovered! Error:\n%v\n", r))
+	log.Printf("Panic Recovered! Error:\n%v", r)
 	buf := make([]byte, 1024)
 	n := runtime.Stack(buf, false)
-	log.Println(fmt.Sprintf("Stack trace:\n%s\n", buf[:n]))
+	log.Printf("Stack trace:\n%s\n", buf[:n])
 }
 
 func DropVisualSeparators(strng string) string {
@@ -151,8 +252,12 @@ func DropConcatenationChars(s string, dropDQ bool) string {
 	return s
 }
 
-func RandomNum(min int, max int) uint32 {
-	return uint32(rand.Intn(max-min+1) + min)
+func RandomNumMinMax(min int, max int) int {
+	return rand.Intn(max-min+1) + min
+}
+
+func RandomNum(max int) int {
+	return rand.Intn(max)
 }
 
 func GetBodyType(contentType string) BodyType {
@@ -171,7 +276,7 @@ func GetBodyType(contentType string) BodyType {
 func ASCIIToLower(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if 'A' <= c && c <= 'Z' {
 			c += byte(DeltaRune)
@@ -184,7 +289,7 @@ func ASCIIToLower(s string) string {
 func ASCIIToUpper(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if 'a' <= c && c <= 'z' {
 			c -= byte(DeltaRune)
@@ -201,7 +306,7 @@ func LowerDash(s string) string {
 func ASCIIPascal(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if 'a' <= c && c <= 'z' && (i == 0 || s[i-1] == '-') {
 			c -= byte(DeltaRune)
@@ -222,7 +327,7 @@ func HeaderCase(h string) string {
 }
 
 func ASCIIToLowerInPlace(s []byte) {
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		c := s[i]
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
@@ -255,7 +360,7 @@ func TranslateInternal(input string, matches []string) (string, error) {
 		return "", fmt.Errorf("empty matches slice")
 	}
 	sbToInt := func(sb strings.Builder) int {
-		return Str2int[int](sb.String())
+		return Str2Int[int](sb.String())
 	}
 
 	item := func(idx int, dblbrkt bool) string {
@@ -361,7 +466,7 @@ func TranslateResult(rgx *regexp.Regexp, input string, trans string, matches []i
 
 func (m Method) IsDialogueCreating() bool {
 	switch m {
-	case OPTIONS, INVITE: // MESSAGE, NEGOTIATE
+	case OPTIONS, INVITE, MESSAGE, REGISTER:
 		return true
 	}
 	return false
@@ -378,12 +483,7 @@ func (m Method) RequiresACK() bool {
 // =====================================================
 
 func Any[T any](items []*T, predict func(*T) bool) bool {
-	for _, item := range items {
-		if predict(item) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(items, predict)
 }
 
 func Find[T any](items []*T, predict func(*T) bool) *T {
@@ -403,6 +503,15 @@ func Filter[T any](items []*T, predict func(*T) bool) []*T {
 		}
 	}
 	return result
+}
+
+func FindFirstValue[T1 comparable, T2 any](m map[T1]*T2, predict func(*T2) bool) *T2 {
+	for _, item := range m {
+		if predict(item) {
+			return item
+		}
+	}
+	return nil
 }
 
 func FirstKeyValue[T1 comparable, T2 any](m map[T1]T2) (T1, T2) {

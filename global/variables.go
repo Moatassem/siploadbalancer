@@ -2,16 +2,16 @@ package global
 
 import (
 	"regexp"
-	"siploadbalancer/cl"
 	"siploadbalancer/prometheus"
 	"sync"
 )
 
 const (
-	BUE               string = "SipLoadBalancer/v1.0"
-	BufferSize        int    = 4096
-	DeltaRune         rune   = 'a' - 'A'
-	MultipartBoundary string = "unique-boundary-1"
+	BUE         string = "SipLoadBalancer/v1.0"
+	DeltaRune   rune   = 'a' - 'A'
+	MagicCookie string = "z9hG4bK"
+	ViaSmall    string = "via"
+	SipVersion  string = "SIP/2.0"
 )
 
 var (
@@ -21,10 +21,7 @@ var (
 
 	Prometrics *prometheus.Metrics
 
-	WtGrp      sync.WaitGroup
-	BufferPool *sync.Pool = NewSyncPool()
-
-	CallLimiter *cl.CallLimiter
+	WtGrp sync.WaitGroup
 )
 
 var (
@@ -62,7 +59,7 @@ var (
 		NameAndNumber:              regexp.MustCompile(`(?i)("?[^<"]+?"?)?\s*<(?:sip|tel):([\*\#\+]?[\d\.\-]+|Invalid|Anonymous|Unavailable)@?`),
 		ReplaceNumberOnly:          regexp.MustCompile(`(?i)(.*?(?:sip|sips|tel):)(?:[\*\#\+]?[\d\.\-]+|Invalid|Anonymous|Unavailable)(.*)`),
 		RequestStartLinePattern:    regexp.MustCompile(`(?i)^\s*([a-z]+)\s+((?:\w+):(?:(?:[^@]+)@)?(?:[^@]+))\s+(SIP/2\.0)$`),
-		INVITERURI:                 regexp.MustCompile(`(?i)^([a-z]+):([\*\#\+]?[a-f0-9\.\-]+)((?:[,;](?:[\w\-]+|[\w\-]+=[^@=,;]+))*)@([^\*\#\+@:,;]+(?::(?:\d+))?)((?:[,;](?:[\w\-]+|[\w\-]+=[^@=,;]+))*)$`),
+		INVITERURI:                 regexp.MustCompile(`(?i)([a-z]+):(?:([\*\#\+]?[a-z0-9\.\-\(\)]+)((?:[,;](?:[\w\-]+=[^@=,;:]+|[\w\-]+))*)(:[^@]+)?@)?([^\*\#\+@,:;]+)(?::(\d+))?((?:[,;](?:[\w\-]+=[^@,;\?]+|[\w\-]+))*)(?:(\?[^?]+))*`),
 		ResponseStartLinePattern:   regexp.MustCompile(`(?i)^\s*(SIP/2\.0)\s+(\d{3})(?:\s+([^,;]+)([,;].+)?)?$`),
 		ViaBranchPattern:           regexp.MustCompile(`(?i);branch\s*=\s*([^;,]+)`),
 		ViaTransport:               regexp.MustCompile(`(?i)SIP/2.0/(\w+)`),
@@ -349,12 +346,3 @@ var (
 		WWW_Authenticate:              "WWW-Authenticate",
 	}
 )
-
-func NewSyncPool() *sync.Pool {
-	return &sync.Pool{
-		New: func() any {
-			b := make([]byte, BufferSize)
-			return &b
-		},
-	}
-}

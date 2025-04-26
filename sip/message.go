@@ -1,7 +1,11 @@
 /*
-# Software Name : Newkah-SIP-Layer
-# SPDX-FileCopyrightText: Copyright (c) 2025 - Orange Business - OINIS/Services/NSF
-
+# Software Name : Session Router (SR)
+# SPDX-FileCopyrightText: Copyright (c) Orange Business - OINIS/Services/NSF
+# SPDX-License-Identifier: Apache-2.0
+#
+# This software is distributed under the Apache-2.0
+# See the "LICENSES" directory for more details.
+#
 # Authors:
 # - Moatassem Talaat <moatassem.talaat@orange.com>
 
@@ -14,70 +18,89 @@ import (
 	"bytes"
 	"fmt"
 	. "siploadbalancer/global"
-	"strings"
 )
 
 type SipMessage struct {
 	MsgType   MessageType
-	StartLine *SipStartLine
+	StartLine SipStartLine
 	Headers   *SipHeaders
-	Body      *MessageBody
-
-	//all fields below are only set in incoming messages
-	FromHeader string
-	ToHeader   string
-	PAIHeaders []string
-	DivHeaders []string
+	Body      []byte
 
 	CallID    string
 	FromTag   string
 	ToTag     string
 	ViaBranch string
-
-	RCURI string
-	RRURI string
-
-	MaxFwds       int
-	CSeqNum       uint32
-	CSeqMethod    Method
-	ContentLength uint16 //only set for incoming messages
 }
 
-func NewSipMessage() *SipMessage {
-	return &SipMessage{}
+func NewRequestMessage(md Method, up string) *SipMessage {
+	sipmsg := &SipMessage{
+		MsgType: REQUEST,
+		StartLine: SipStartLine{
+			Method: md,
+		},
+	}
+	return sipmsg
+}
+
+func NewResponseMessage(sc int, rp string) *SipMessage {
+	if sc < 100 || sc > 699 {
+		sc = 400
+	}
+	sipmsg := &SipMessage{
+		MsgType: RESPONSE,
+		StartLine: SipStartLine{
+			StatusCode:   sc,
+			ReasonPhrase: rp,
+		},
+	}
+	return sipmsg
 }
 
 // ==========================================================================
 
+func (sipmsg *SipMessage) String() string {
+	if sipmsg.MsgType == REQUEST {
+		return sipmsg.StartLine.Method.String()
+	}
+
+	return Int2Str(sipmsg.StartLine.StatusCode)
+}
+
+func (sipmsg *SipMessage) Bytes() []byte {
+	var bb bytes.Buffer
+
+	// startline
+	if sipmsg.IsRequest() {
+		sl := sipmsg.StartLine
+		bb.WriteString(sl.BuildStartLine(REQUEST))
+	} else {
+		sl := sipmsg.StartLine
+		bb.WriteString(sl.BuildStartLine(RESPONSE))
+	}
+
+	// headers - build and write
+	for _, h := range sipmsg.getHeaderNames() {
+		_, values := sipmsg.Headers.Values(h)
+		for _, hv := range values {
+			if hv != "" {
+				bb.WriteString(fmt.Sprintf("%s: %s\r\n", h, hv))
+			}
+		}
+	}
+
+	// write separator
+	bb.WriteString("\r\n")
+
+	// write body bytes
+	bb.Write(sipmsg.Body)
+
+	return bb.Bytes()
+}
+
+// ===========================================================================
+
 func (sipmsg *SipMessage) IsOutOfDialgoue() bool {
 	return sipmsg.ToTag == ""
-}
-
-func (sipmsg *SipMessage) IsOptionSupportedOrRequired(o string) bool {
-	hdr := sipmsg.Headers.ValueHeader(Require)
-	if strings.Contains(hdr, o) {
-		return true
-	}
-	hdr = sipmsg.Headers.ValueHeader(Supported)
-	return strings.Contains(hdr, o)
-}
-
-func (sipmsg *SipMessage) IsOptionSupported(o string) bool {
-	hdr := sipmsg.Headers.ValueHeader(Supported)
-	hdr = ASCIIToLower(hdr)
-	return hdr != "" && strings.Contains(hdr, o)
-}
-
-func (sipmsg *SipMessage) IsOptionRequired(o string) bool {
-	hdr := sipmsg.Headers.ValueHeader(Require)
-	hdr = ASCIIToLower(hdr)
-	return hdr != "" && strings.Contains(hdr, o)
-}
-
-func (sipmsg *SipMessage) IsMethodAllowed(m Method) bool {
-	hdr := sipmsg.Headers.ValueHeader(Allow)
-	hdr = ASCIIToLower(hdr)
-	return hdr != "" && strings.Contains(hdr, ASCIIToLower(m.String()))
 }
 
 func (sipmsg *SipMessage) IsResponse() bool {
@@ -96,88 +119,8 @@ func (sipmsg *SipMessage) GetStatusCode() int {
 	return sipmsg.StartLine.StatusCode
 }
 
-func (sipmsg *SipMessage) PrepareMessageBytes() {
-	bb := bytes.Buffer{}
-	var headers []string
+// ======================================
 
-	byteschan := make(chan []byte)
-
-	go func(bc chan<- []byte) {
-		bb2 := bytes.Buffer{}
-		if sipmsg.Body.PartsBytes == nil {
-			sipmsg.Headers.SetHeader(Content_Type, "")
-			sipmsg.Headers.SetHeader(MIME_Version, "")
-		} else {
-			bdyparts := sipmsg.Body.PartsBytes
-			if len(bdyparts) == 1 {
-				k, v := FirstKeyValue(bdyparts)
-				sipmsg.Headers.SetHeader(Content_Type, DicBodyContentType[k])
-				sipmsg.Headers.SetHeader(MIME_Version, "")
-				bb2.Write(v.Bytes)
-			} else {
-				sipmsg.Headers.SetHeader(Content_Type, fmt.Sprintf("multipart/mixed;boundary=%v", MultipartBoundary))
-				sipmsg.Headers.SetHeader(MIME_Version, "1.0")
-				for _, ct := range bdyparts {
-					bb2.WriteString(fmt.Sprintf("--%v\r\n", MultipartBoundary))
-					for _, h := range ct.Headers.GetHeaderNames() {
-						_, values := ct.Headers.Values(h)
-						for _, hv := range values {
-							bb2.WriteString(fmt.Sprintf("%v: %v\r\n", HeaderCase(h), hv))
-						}
-					}
-					bb2.WriteString("\r\n")
-					bb2.Write(ct.Bytes)
-				}
-				bb2.WriteString(fmt.Sprintf("--%v--\r\n", MultipartBoundary))
-			}
-		}
-		bc <- bb2.Bytes()
-	}(byteschan)
-
-	//startline
-	if sipmsg.IsRequest() {
-		sl := sipmsg.StartLine
-		bb.WriteString(fmt.Sprintf("%v %v SIP/2.0\r\n", sl.Method.String(), sl.Ruri))
-	} else {
-		sl := sipmsg.StartLine
-		bb.WriteString(fmt.Sprintf("SIP/2.0 %v %v\r\n", sl.StatusCode, sl.ReasonPhrase))
-	}
-	headers = sipmsg.Headers.GetHeaderNames()
-
-	// var bodybytes []byte
-	bodybytes := <-byteschan
-
-	//body - build body type, length, multipart and related headers
-	cntntlen := len(bodybytes)
-
-	sipmsg.Headers.SetHeader(Content_Length, fmt.Sprintf("%v", cntntlen))
-
-	//headers - build and write
-	for _, h := range headers {
-		_, values := sipmsg.Headers.Values(h)
-		for _, hv := range values {
-			if hv != "" {
-				bb.WriteString(fmt.Sprintf("%v: %v\r\n", h, hv))
-			}
-		}
-	}
-
-	//P- headers build and write
-	pHeaders := sipmsg.Headers.ValuesWithHeaderPrefix("P-")
-	for h, hvs := range pHeaders {
-		for _, hv := range hvs {
-			if hv != "" {
-				bb.WriteString(fmt.Sprintf("%v: %v\r\n", h, hv))
-			}
-		}
-	}
-
-	// write separator
-	bb.WriteString("\r\n")
-
-	// write body bytes
-	bb.Write(bodybytes)
-
-	//save generated bytes for retransmissions
-	sipmsg.Body.MessageBytes = bb.Bytes()
+func (sipmsg *SipMessage) getHeaderNames() []string {
+	return sipmsg.Headers.hnames
 }

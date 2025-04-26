@@ -1,9 +1,8 @@
 /*
-# Software Name : Newkah-SIP-Layer
-# SPDX-FileCopyrightText: Copyright (c) 2025 - Orange Business - OINIS/Services/NSF
+# Software Name : SIPLoadBalancer
 
-# Authors:
-# - Moatassem Talaat <moatassem.talaat@orange.com>
+# Author:
+# - Moatassem Talaat <eng.moatassem@gmail.com>
 
 ---
 */
@@ -29,19 +28,20 @@ func StartWS(ip net.IP) {
 
 	ws := fmt.Sprintf("%s:%d", ip, HttpTcpPort)
 
+	WtGrp.Add(1)
 	go func() {
 		defer WtGrp.Done()
 		log.Fatal(http.ListenAndServe(ws, r))
 	}()
 
 	log.Println("Loading API Webserver...")
-	log.Println(fmt.Sprintf("Success: HTTP %s", ws))
+	log.Printf("Success: HTTP %s\n", ws)
 
-	log.Println(fmt.Sprintf("Prometheus metrics available at http://%s/metrics\n", ws))
+	log.Printf("Prometheus metrics available at http://%s/metrics\n", ws)
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(fmt.Sprintf("<h1> %s API Webserver</h1>\n", BUE)))
+	w.Write(fmt.Appendf(nil, "<h1> %s API Webserver</h1>\n", BUE))
 }
 
 func serveStats(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,24 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch",
+      "type": "go",
+      "request": "launch", //"attach",
+      "mode": "debug",
+      "program": "${workspaceFolder}/main.go",
+      "env": {
+        // "as_sip_udp": "192.168.1.2:5060",
+        "auto_server_ipv4": "",
+        // "server_ipv4": "",
+        "indialogue_interval": "1000",
+        "sip_udp_port": "5060",
+        "http_port": "8080",
+        "ka_interval": "180"
+      }
+    }
+  ]
+}

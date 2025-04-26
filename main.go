@@ -32,19 +32,19 @@ func checkEVs() (redisskt string, ipv4 string) {
 	}
 	sup, ok := os.LookupEnv(Own_Sip_UdpPort)
 	if ok {
-		SipUdpPort = Str2int[int](sup)
+		SipUdpPort = Str2Int[int](sup)
 	} else {
 		SipUdpPort = 5066
 	}
 	hp, ok := os.LookupEnv(Own_Http_port)
 	if ok {
-		HttpTcpPort = Str2int[int](hp)
+		HttpTcpPort = Str2Int[int](hp)
 	} else {
 		HttpTcpPort = 8081
 	}
 	cl, ok := os.LookupEnv(Own_Call_Limit)
 	if ok {
-		RateLimit = Str2int[int](cl)
+		RateLimit = Str2Int[int](cl)
 	} else {
 		RateLimit = 1500
 	}
@@ -60,7 +60,6 @@ func main() {
 	Prometrics = prometheus.NewMetrics()
 	conn, ip := sip.StartServer(checkEVs())
 	defer conn.Close()
-	WtGrp.Add(2) //2 goroutines in StartServer and StartWS
 	webserver.StartWS(ip)
 	WtGrp.Wait()
 }
