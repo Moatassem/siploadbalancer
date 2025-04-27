@@ -131,34 +131,8 @@ func int2str[T int | int8 | int16 | int32 | int64](buf []byte, val T) string {
 	return string(buf[i:])
 }
 
-// func GetNextIndex(pdu []byte, markstrng string) int {
-// 	markBytes := []byte(markstrng)
-// 	for i := 0; i <= len(pdu)-len(markBytes); i++ {
-// 		k := 0
-// 		for k < len(markBytes) {
-// 			if pdu[i+k] != markBytes[k] {
-// 				goto nextloop
-// 			}
-// 			k++
-// 		}
-// 		return i
-// 	nextloop:
-// 	}
-// 	return -1
-// }
-
 func GetNextIndex(pdu []byte, markstrng string) int {
-	markBytes := []byte(markstrng)
-	markLen := len(markBytes)
-	pduLen := len(pdu)
-
-	for i := 0; i <= pduLen-markLen; i++ {
-		if bytes.Equal(pdu[i:i+markLen], markBytes) {
-			return i
-		}
-	}
-
-	return -1
+	return bytes.Index(pdu, []byte(markstrng))
 }
 
 func BuildSipUdpSocket(host, port string) (*net.UDPAddr, error) {
