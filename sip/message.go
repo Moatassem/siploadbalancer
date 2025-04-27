@@ -60,7 +60,7 @@ func NewResponseMessage(sc int, rp string) *SipMessage {
 
 func (sipmsg *SipMessage) String() string {
 	if sipmsg.MsgType == REQUEST {
-		return sipmsg.StartLine.Method.String()
+		return string(sipmsg.StartLine.Method)
 	}
 
 	return Int2Str(sipmsg.StartLine.StatusCode)
@@ -79,7 +79,7 @@ func (sipmsg *SipMessage) Bytes() []byte {
 	}
 
 	// headers - build and write
-	for _, h := range sipmsg.getHeaderNames() {
+	for _, h := range sipmsg.Headers.hnames {
 		_, values := sipmsg.Headers.Values(h)
 		for _, hv := range values {
 			if hv != "" {
@@ -120,7 +120,3 @@ func (sipmsg *SipMessage) GetStatusCode() int {
 }
 
 // ======================================
-
-func (sipmsg *SipMessage) getHeaderNames() []string {
-	return sipmsg.Headers.hnames
-}

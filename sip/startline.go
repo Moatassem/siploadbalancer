@@ -16,9 +16,9 @@ import (
 )
 
 type SipStartLine struct {
-	Method
-	Host string
-	Port string
+	Method Method
+	Host   string
+	Port   string
 
 	RUri string
 
@@ -28,7 +28,7 @@ type SipStartLine struct {
 
 func (ssl *SipStartLine) BuildStartLine(mt MessageType) string {
 	if mt == REQUEST {
-		return fmt.Sprintf("%s %s %s\r\n", ssl.Method.String(), ssl.RUri, SipVersion)
+		return fmt.Sprintf("%s %s %s\r\n", ssl.Method, ssl.RUri, SipVersion)
 	}
 	return fmt.Sprintf("%s %d %s\r\n", SipVersion, ssl.StatusCode, ssl.ReasonPhrase)
 }

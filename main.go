@@ -7,47 +7,57 @@ import (
 	"siploadbalancer/prometheus"
 	"siploadbalancer/sip"
 	"siploadbalancer/webserver"
+	"strings"
 )
 
 // environment variables
 const (
-	Redis_IpPort    string = "redis_socket"
-	Own_Ip_IPv4     string = "server_ipv4"
-	Own_Sip_UdpPort string = "sip_udp_port"
-	Own_Http_port   string = "http_port"
-	Own_Call_Limit  string = "call_limit"
+	Redis_IpPort     string = "redis_socket"
+	Own_Ip_IPv4      string = "server_ipv4"
+	Own_Sip_UdpPort  string = "sip_udp_port"
+	Own_Http_port    string = "http_port"
+	LoadBalance_Mode string = "lbmode"
+	SIP_UdpServers   string = "sip_udp_servers"
 )
 
 // check global environment variables
-func checkEVs() (redisskt string, ipv4 string) {
-	redisskt, ok := os.LookupEnv(Redis_IpPort)
-	if !ok {
-		fmt.Println("No Redis socket provided!")
+func checkEVs() (redisskt, ipv4, lbmode string, sipskts []string) {
+	var ok bool
+	// redisskt, ok := os.LookupEnv(Redis_IpPort)
+	// if !ok {
+	// 	fmt.Println("No Redis socket provided!")
+	// 	os.Exit(1)
+	// }
+
+	if lbmode, ok = os.LookupEnv(LoadBalance_Mode); !ok {
+		fmt.Println("No load-balancing mode provided!")
 		os.Exit(1)
 	}
-	ipv4, ok = os.LookupEnv(Own_Ip_IPv4)
-	if !ok {
+
+	if ipv4, ok = os.LookupEnv(Own_Ip_IPv4); !ok {
 		fmt.Println("No self IPv4 address provided!")
 		os.Exit(1)
 	}
-	sup, ok := os.LookupEnv(Own_Sip_UdpPort)
-	if ok {
+
+	if sipnodes, ok := os.LookupEnv(SIP_UdpServers); ok {
+		sipskts = strings.Split(sipnodes, ";")
+	} else {
+		fmt.Println("No SIP servers provided!")
+		os.Exit(1)
+	}
+
+	if sup, ok := os.LookupEnv(Own_Sip_UdpPort); ok {
 		SipUdpPort = Str2Int[int](sup)
 	} else {
 		SipUdpPort = 5066
 	}
-	hp, ok := os.LookupEnv(Own_Http_port)
-	if ok {
+
+	if hp, ok := os.LookupEnv(Own_Http_port); ok {
 		HttpTcpPort = Str2Int[int](hp)
 	} else {
 		HttpTcpPort = 8081
 	}
-	cl, ok := os.LookupEnv(Own_Call_Limit)
-	if ok {
-		RateLimit = Str2Int[int](cl)
-	} else {
-		RateLimit = 1500
-	}
+
 	return
 }
 
@@ -58,8 +68,8 @@ func greeting() {
 func main() {
 	greeting()
 	Prometrics = prometheus.NewMetrics()
-	conn, ip := sip.StartServer(checkEVs())
-	defer conn.Close()
+	ip := sip.StartServer(checkEVs())
+	defer sip.ServerConnection.Close()
 	webserver.StartWS(ip)
 	WtGrp.Wait()
 }

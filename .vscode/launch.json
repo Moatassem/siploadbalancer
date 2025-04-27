@@ -11,13 +11,11 @@
       "mode": "debug",
       "program": "${workspaceFolder}/main.go",
       "env": {
-        // "as_sip_udp": "192.168.1.2:5060",
-        "auto_server_ipv4": "",
-        // "server_ipv4": "",
-        "indialogue_interval": "1000",
+        "server_ipv4": "192.168.1.2",
         "sip_udp_port": "5060",
-        "http_port": "8080",
-        "ka_interval": "180"
+        "http_port": "9080",
+        "lbmode": "RoundRobin",
+        "sip_udp_servers": "192.168.1.2:5070"
       }
     }
   ]

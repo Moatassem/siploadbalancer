@@ -47,14 +47,8 @@ func startWorkers() {
 
 func udpLoopWorkers() {
 	WtGrp.Add(1)
-	defer func() {
-		WtGrp.Done()
-		if r := recover(); r != nil {
-			LogCallStack(r)
-			udpLoopWorkers()
-		}
-	}()
 	go func() {
+		WtGrp.Done()
 		for {
 			buf := BufferPool.Get().(*[]byte)
 			n, addr, err := ServerConnection.ReadFromUDP(*buf)
@@ -109,7 +103,7 @@ func parsePDU(payload []byte) (*SipMessage, []byte, error) {
 	var startLine SipStartLine
 
 	sipmsg := new(SipMessage)
-	msgmap := NewSHsPointer()
+	msgmap := NewSipHeaders()
 
 	var _dblCrLfIdx, _bodyStartIdx, lnIdx, cntntLength, cntntLengthComputed int
 
@@ -130,7 +124,7 @@ func parsePDU(payload []byte) (*SipMessage, []byte, error) {
 	if RMatch(msglines[lnIdx], RequestStartLinePattern, &matches) {
 		msgType = REQUEST
 		startLine.StatusCode = 0
-		startLine.Method = MethodFromName(ASCIIToUpper(matches[1]))
+		startLine.Method = GetMethod(ASCIIToUpper(matches[1]))
 		if startLine.Method == UNKNOWN {
 			return sipmsg, nil, errors.New("invalid method for Request message")
 		}
@@ -163,35 +157,33 @@ func parsePDU(payload []byte) (*SipMessage, []byte, error) {
 	for i := lnIdx; i < len(msglines) && msglines[i] != ""; i++ {
 		matches := DicFieldRegEx[FullHeader].FindStringSubmatch(msglines[i])
 		if matches != nil {
-			headerLC := ASCIIToLower(matches[1])
-			value := matches[2]
-			switch headerLC {
-			case From.LowerCaseString():
-				tag := DicFieldRegEx[Tag].FindStringSubmatch(value)
+			headername := matches[1]
+			headervalue := matches[2]
+			switch {
+			case strings.EqualFold(headername, From):
+				tag := DicFieldRegEx[Tag].FindStringSubmatch(headervalue)
 				if tag != nil {
 					sipmsg.FromTag = tag[1]
 				}
-			case To.LowerCaseString():
-				tag := DicFieldRegEx[Tag].FindStringSubmatch(value)
+			case strings.EqualFold(headername, To):
+				tag := DicFieldRegEx[Tag].FindStringSubmatch(headervalue)
 				if tag != nil && tag[1] != "" {
 					sipmsg.ToTag = tag[1]
 					if startLine.Method == INVITE {
 						startLine.Method = ReINVITE
 					}
 				}
-			case Content_Length.LowerCaseString():
-				cntntLength = Str2Int[int](value)
-			case Call_ID.LowerCaseString():
-				sipmsg.CallID = value
-			case Via.LowerCaseString():
-				via := DicFieldRegEx[ViaBranchPattern].FindStringSubmatch(value)
-				if via != nil {
-					if sipmsg.ViaBranch == "" {
-						sipmsg.ViaBranch = via[1]
-					}
+			case strings.EqualFold(headername, Content_Length):
+				cntntLength = Str2Int[int](headervalue)
+			case strings.EqualFold(headername, Call_ID):
+				sipmsg.CallID = headervalue
+			case strings.EqualFold(headername, Via):
+				via := DicFieldRegEx[ViaBranchPattern].FindStringSubmatch(headervalue)
+				if via != nil && sipmsg.ViaBranch == "" {
+					sipmsg.ViaBranch = via[1]
 				}
 			}
-			msgmap.Add(headerLC, value)
+			msgmap.Add(headername, headervalue)
 		}
 	}
 
@@ -219,14 +211,14 @@ func parsePDU(payload []byte) (*SipMessage, []byte, error) {
 	return sipmsg, payload, nil
 }
 
-func callHandler(sipmsg *SipMessage, msgAddr *net.UDPAddr) {
+func callHandler(sipmsg *SipMessage, srcAddr *net.UDPAddr) {
 	defer func() {
 		if r := recover(); r != nil {
 			LogCallStack(r)
 		}
 	}()
 
-	cc, rmtAddr := LoadBalancer.AddOrGetCallCache(sipmsg, msgAddr)
+	cc, rmtAddr := LoadBalancer.AddOrGetCallCache(sipmsg, srcAddr)
 	if cc == nil || rmtAddr == nil {
 		return
 	}

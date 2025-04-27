@@ -2,6 +2,7 @@ package sip
 
 import (
 	"cmp"
+	"fmt"
 	"log"
 	"net"
 	. "siploadbalancer/global"
@@ -10,27 +11,28 @@ import (
 	"time"
 )
 
-var LoadBalancer = newLoadBalancer()
+var LoadBalancer *LoadBalancingNode
 
 type (
 	LoadBalancingNode struct {
-		nodeIdx      int
-		SIPNodes     []*SIPNode
+		SipNodes     []*SipNode
 		Distribution Distribution
-		CallCache    map[string]*CallCache
-		mu           sync.RWMutex
+
+		nodeIdx    int
+		callsCache map[string]*CallCache
+		mu         sync.RWMutex
 	}
 
-	SIPNode struct {
-		IPv4        string
-		Port        int
-		Name        string
+	SipNode struct {
+		UdpAddr     *net.UDPAddr
 		Description string
+		Cost        int
+		Weight      int
+		accWeight   int
 
-		UdpAddr *net.UDPAddr
+		Key     string
 		Hits    int
 		LastHit time.Time
-		Weight  int
 		IsAlive bool
 
 		mu sync.RWMutex
@@ -40,14 +42,16 @@ type (
 	Distribution string
 
 	CallCache struct {
-		SIPNode    *SIPNode
+		SIPNode    *SipNode
 		OtherAddr  *net.UDPAddr
 		IsOutbound bool
 		CallID     string
 		FromTag    string
-		ViaBranch  string
-		CallStatus Status
-		Messages   []string
+		// ViaBranch    string
+		OwnViaBranch string
+		CallStatus   Status
+		Messages     []string
+		IsProbing    bool
 
 		timeoutTmr *time.Timer
 		clearTmr   *time.Timer
@@ -55,49 +59,59 @@ type (
 	}
 )
 
-// add Via on top from my own IPv4:Port UDP .. keep contact header
-// parse the sip message until you get Call-ID, Via and From headers .. including start-line
-// remove my Via in responses (initial ones)
-
 const (
-	StatusProgressing Status = "Progressing" // received OPTIONS, INVITE, MESSAGE, REGISTER
+	StatusProgressing Status = "Progressing" // received Dialogue-creating methods
 	StatusRejected    Status = "Rejected"    // received 3xx-6xx
 	StatusAnswered    Status = "Answered"    // received 2xx
 	StatusCancelled   Status = "Cancelled"   // received CANCEL
 	StatusTimedout    Status = "Timedout"    // received no responses in time
 
 	DistribRoundRobin Distribution = "RoundRobin"
-	DistribRandom     Distribution = "Random"
 	DistribLeastHit   Distribution = "LeastHit"
+	DistribLeastCost  Distribution = "LeastCost"
 	DistribMostIdle   Distribution = "MostIdle"
+	DistribWeighted   Distribution = "Weighted"
+	DistribRandom     Distribution = "Random"
 
 	timeoutTimerDuration = 32 * time.Second
 	clearTimerDuration   = 10 * time.Second
 )
 
-func newLoadBalancer() *LoadBalancingNode {
+func (lb *LoadBalancingNode) CallsCacheCount() int {
+	lb.mu.RLock()
+	defer lb.mu.RUnlock()
+
+	return len(lb.callsCache)
+}
+
+func NewLoadBalancer(lbm string, sipnodes []*SipNode) *LoadBalancingNode {
 	return &LoadBalancingNode{
+		SipNodes:     sipnodes,
 		Distribution: DistribRoundRobin,
-		CallCache:    make(map[string]*CallCache),
+		callsCache:   make(map[string]*CallCache),
 	}
 }
 
-func (lb *LoadBalancingNode) GetNode() *SIPNode {
+func (lb *LoadBalancingNode) GetNode() *SipNode {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
 	switch lb.Distribution {
 	case DistribRoundRobin:
+		nd := lb.SipNodes[lb.nodeIdx]
 		lb.nodeIdx++
-		if lb.nodeIdx >= len(lb.SIPNodes) {
+		if lb.nodeIdx >= len(lb.SipNodes) {
 			lb.nodeIdx = 0
 		}
-		return lb.SIPNodes[lb.nodeIdx]
+		return nd
 	case DistribLeastHit:
-		slices.SortFunc(lb.SIPNodes, func(a, b *SIPNode) int { return cmp.Compare(a.Hits, b.Hits) })
-		return lb.SIPNodes[0]
+		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Hits, b.Hits) })
+		return lb.SipNodes[0]
+	case DistribLeastCost:
+		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Cost, b.Cost) })
+		return lb.SipNodes[0]
 	case DistribMostIdle:
-		slices.SortFunc(lb.SIPNodes, func(a, b *SIPNode) int {
+		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int {
 			if a.LastHit.Before(b.LastHit) {
 				return -1
 			}
@@ -106,30 +120,85 @@ func (lb *LoadBalancingNode) GetNode() *SIPNode {
 			}
 			return 0
 		})
-		return lb.SIPNodes[0]
+		return lb.SipNodes[0]
+	case DistribWeighted:
+		panic("Not implemented yet")
 	default: // DistribRandom
-		idx := RandomNum(len(lb.SIPNodes))
-		return lb.SIPNodes[idx]
+		return lb.SipNodes[RandomNum(len(lb.SipNodes))]
 	}
-
 }
 
 func (lb *LoadBalancingNode) DeleteCallCache(callID string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-
-	delete(lb.CallCache, callID)
+	delete(lb.callsCache, callID)
 }
 
-func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, msgAddr *net.UDPAddr) (*CallCache, *net.UDPAddr) {
+func (lb *LoadBalancingNode) ProbeSipNodes() {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	for _, sn := range lb.SipNodes {
+		callid := GetCallID()
+		viaBranch := GetViaBranch()
+		frmTag := GetTagOrKey()
+		localstr := ServerConnection.LocalAddr().String()
+		remotestr := sn.UdpAddr.String()
+
+		hdrs := NewSipHeaders()
+		hdrs.Add(Via, buildViaHeader(viaBranch))
+		hdrs.Add(From, fmt.Sprintf("<sip:ping@%s>;tag=%s", localstr, frmTag))
+		hdrs.Add(To, fmt.Sprintf("<sip:ping@%s>", remotestr))
+		hdrs.Add(Call_ID, callid)
+		hdrs.Add(CSeq, fmt.Sprintf("911 %s", OPTIONS))
+		hdrs.Add(Contact, fmt.Sprintf("<sip:%s>", localstr))
+		hdrs.Add(Max_Forwards, "70")
+		hdrs.Add(User_Agent, BUE)
+		hdrs.Add(Content_Length, "0")
+
+		probemsg := &SipMessage{
+			MsgType: REQUEST,
+			StartLine: SipStartLine{
+				Method: OPTIONS,
+				RUri:   fmt.Sprintf("sip:%s", remotestr),
+			},
+			Headers: hdrs,
+		}
+
+		cc := &CallCache{
+			SIPNode:      sn,
+			CallID:       callid,
+			FromTag:      frmTag,
+			OwnViaBranch: viaBranch,
+			CallStatus:   StatusProgressing,
+			IsProbing:    true,
+		}
+		cc.StartTimeoutTimer()
+
+		lb.callsCache[callid] = cc
+
+		ServerConnection.WriteTo(probemsg.Bytes(), sn.UdpAddr)
+	}
+}
+
+func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.UDPAddr) (*CallCache, *net.UDPAddr) {
 	lb.mu.RLock()
-	cc, ok := lb.CallCache[sipmsg.CallID]
+	cc, ok := lb.callsCache[sipmsg.CallID]
 	lb.mu.RUnlock()
 
 	if ok {
 		cc.mu.Lock()
-		cc.Messages = append(cc.Messages, sipmsg.String())
 
+		if cc.IsProbing {
+			defer cc.mu.Unlock()
+			if cc.timeoutTmr.Stop() {
+				cc.SIPNode.SetAlive(true)
+				LoadBalancer.DeleteCallCache(cc.CallID)
+			}
+			return nil, nil
+		}
+
+		cc.Messages = append(cc.Messages, sipmsg.String())
 		if sipmsg.IsResponse() {
 			cc.timeoutTmr.Stop()
 			sipmsg.Headers.DropTopVia()
@@ -146,13 +215,14 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, msgAddr *net.
 				cc.clearTmr = getClearTimer(cc.CallID)
 			}
 		} else {
-			sipmsg.Headers.AddTopVia()
+			sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
 		}
 		cc.mu.Unlock()
 
-		if AreUAddrsEqual(cc.OtherAddr, msgAddr) {
+		if AreUAddrsEqual(cc.OtherAddr, srcAddr) {
 			return cc, cc.SIPNode.UdpAddr
 		}
+
 		return cc, cc.OtherAddr
 	}
 
@@ -161,25 +231,23 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, msgAddr *net.
 		return nil, nil
 	}
 
-	var rmtAddr *net.UDPAddr
-	var err error
-
-	rmtAddr, err = BuildUDPAddr(sipmsg.StartLine.Host, sipmsg.StartLine.Port)
-	if err != nil {
-		log.Printf("Message [%s] contains not reachable host - Error [%s] - Dropping", sipmsg.String(), err)
-	}
-
-	var azrAddr *net.UDPAddr
+	var rmtAddr, azrAddr *net.UDPAddr
 	var isout bool
 
-	msgAddrstrg := msgAddr.String()
-	sn := Find(lb.SIPNodes, func(x *SIPNode) bool { return x.UdpAddr.String() == msgAddrstrg })
+	sn := Find(lb.SipNodes, func(x *SipNode) bool { return AreUAddrsEqual(x.UdpAddr, srcAddr) })
 	if sn == nil { // inbound from Access to Core
 		sn = lb.GetNode()
 		sn.AddHit()
-		azrAddr = msgAddr
+		azrAddr = srcAddr
+		rmtAddr = sn.UdpAddr
 	} else { // outbound from Core to Access
-		azrAddr = rmtAddr
+		msgTargetAddr, err := BuildSipUdpSocket(sipmsg.StartLine.Host, sipmsg.StartLine.Port)
+		if err != nil {
+			log.Printf("Message [%s] contains not reachable host - Error [%s] - Dropping", sipmsg.String(), err)
+			return nil, nil
+		}
+		azrAddr = msgTargetAddr
+		rmtAddr = msgTargetAddr
 		isout = true
 	}
 
@@ -189,19 +257,18 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, msgAddr *net.
 		IsOutbound: isout,
 		CallID:     sipmsg.CallID,
 		FromTag:    sipmsg.FromTag,
-		ViaBranch:  sipmsg.ViaBranch,
-		CallStatus: StatusProgressing,
-		Messages:   []string{sipmsg.String()},
+		// ViaBranch:  sipmsg.ViaBranch,
+		OwnViaBranch: GetViaBranch(),
+		CallStatus:   StatusProgressing,
+		Messages:     []string{sipmsg.String()},
 	}
-
-	sipmsg.Headers.AddTopVia()
-
-	cc.timeoutTmr = time.NewTimer(timeoutTimerDuration)
-	go cc.timeoutHandler()
+	cc.StartTimeoutTimer()
 
 	lb.mu.Lock()
-	lb.CallCache[sipmsg.CallID] = cc
+	lb.callsCache[sipmsg.CallID] = cc
 	lb.mu.Unlock()
+
+	sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
 
 	return cc, rmtAddr
 }
@@ -210,18 +277,40 @@ func (cc *CallCache) timeoutHandler() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 
-	cc.CallStatus = StatusTimedout
 	cc.clearTmr = getClearTimer(cc.CallID)
+
+	if cc.IsProbing {
+		cc.SIPNode.SetAlive(false)
+		return
+	}
+
+	cc.CallStatus = StatusTimedout
+}
+
+func (cc *CallCache) StartTimeoutTimer() {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+
+	cc.timeoutTmr = time.AfterFunc(timeoutTimerDuration, func() { cc.timeoutHandler() })
 }
 
 func getClearTimer(callID string) *time.Timer {
 	return time.AfterFunc(clearTimerDuration, func() { LoadBalancer.DeleteCallCache(callID) })
 }
 
-func (sn *SIPNode) AddHit() {
+func (sn *SipNode) AddHit() {
 	sn.mu.Lock()
 	defer sn.mu.Unlock()
 
-	sn.Hits++
+	sn.Hits++ // TODO: find a way to rest this count!
 	sn.LastHit = time.Now().UTC()
+}
+
+func (sn *SipNode) SetAlive(flag bool) {
+	sn.mu.Lock()
+	defer sn.mu.Unlock()
+
+	sn.IsAlive = flag
+
+	// fmt.Printf("SipNode: %s - IsAlive: %v\n", sn.UdpAddr.String(), sn.IsAlive)
 }

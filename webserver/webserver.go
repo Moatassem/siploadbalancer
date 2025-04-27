@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"runtime"
 	. "siploadbalancer/global"
+	"siploadbalancer/sip"
 )
 
 func StartWS(ip net.IP) {
@@ -41,10 +42,12 @@ func StartWS(ip net.IP) {
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
-	w.Write(fmt.Appendf(nil, "<h1> %s API Webserver</h1>\n", BUE))
+	w.Write(fmt.Appendf(nil, "<h1>%s API Webserver</h1>\n", BUE))
 }
 
 func serveStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -58,11 +61,14 @@ func serveStats(w http.ResponseWriter, r *http.Request) {
 		Alloc           uint64
 		System          uint64
 		GCCycles        uint32
-	}{CPUCount: runtime.NumCPU(),
+		CallsCacheCount int
+	}{
+		CPUCount:        runtime.NumCPU(),
 		GoRoutinesCount: runtime.NumGoroutine(),
 		Alloc:           BToMB(m.Alloc),
 		System:          BToMB(m.Sys),
 		GCCycles:        m.NumGC,
+		CallsCacheCount: sip.LoadBalancer.CallsCacheCount(),
 	}
 
 	response, _ := json.Marshal(data)
