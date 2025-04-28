@@ -70,10 +70,7 @@ func worker(queue <-chan Packet) {
 
 func processPacket(packet Packet) {
 	pdu := (*packet.buffer)[:packet.bytesCount]
-	for {
-		if len(pdu) == 0 {
-			break
-		}
+	for len(pdu) > 0 {
 		msg, pdutmp, err := parsePDU(pdu)
 		if err != nil {
 			fmt.Println("Bad PDU -", err)
@@ -223,5 +220,8 @@ func callHandler(sipmsg *SipMessage, srcAddr *net.UDPAddr) {
 		return
 	}
 
-	ServerConnection.WriteTo(sipmsg.Bytes(), rmtAddr)
+	_, err := ServerConnection.WriteTo(sipmsg.Bytes(), rmtAddr)
+	if err != nil {
+		log.Println("Failed to forward message - error:", err)
+	}
 }

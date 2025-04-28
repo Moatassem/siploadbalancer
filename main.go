@@ -69,7 +69,7 @@ func main() {
 	greeting()
 	Prometrics = prometheus.NewMetrics()
 	ip := sip.StartServer(checkEVs())
-	defer sip.ServerConnection.Close()
+	// defer sip.ServerConnection.Close()
 	webserver.StartWS(ip)
 	WtGrp.Wait()
 }

@@ -42,7 +42,10 @@ func StartWS(ip net.IP) {
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
-	w.Write(fmt.Appendf(nil, "<h1>%s API Webserver</h1>\n", BUE))
+	_, err := w.Write(fmt.Appendf(nil, "<h1>%s API Webserver</h1>\n", BUE))
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func serveStats(w http.ResponseWriter, r *http.Request) {
@@ -72,5 +75,8 @@ func serveStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, _ := json.Marshal(data)
-	w.Write(response)
+	_, err := w.Write(response)
+	if err != nil {
+		log.Println(err)
+	}
 }

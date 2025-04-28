@@ -42,12 +42,11 @@ type (
 	Distribution string
 
 	CallCache struct {
-		SIPNode    *SipNode
-		OtherAddr  *net.UDPAddr
-		IsOutbound bool
-		CallID     string
-		FromTag    string
-		// ViaBranch    string
+		SIPNode      *SipNode
+		OtherAddr    *net.UDPAddr
+		IsOutbound   bool
+		CallID       string
+		FromTag      string
 		OwnViaBranch string
 		CallStatus   Status
 		Messages     []string
@@ -77,19 +76,23 @@ const (
 	clearTimerDuration   = 10 * time.Second
 )
 
-func (lb *LoadBalancingNode) CallsCacheCount() int {
-	lb.mu.RLock()
-	defer lb.mu.RUnlock()
-
-	return len(lb.callsCache)
-}
-
 func NewLoadBalancer(lbm string, sipnodes []*SipNode) *LoadBalancingNode {
 	return &LoadBalancingNode{
 		SipNodes:     sipnodes,
 		Distribution: DistribRoundRobin,
 		callsCache:   make(map[string]*CallCache),
 	}
+}
+
+func createClearTimer(callID string) *time.Timer {
+	return time.AfterFunc(clearTimerDuration, func() { LoadBalancer.DeleteCallCache(callID) })
+}
+
+func (lb *LoadBalancingNode) CallsCacheCount() int {
+	lb.mu.RLock()
+	defer lb.mu.RUnlock()
+
+	return len(lb.callsCache)
 }
 
 func (lb *LoadBalancingNode) GetNode() *SipNode {
@@ -122,7 +125,7 @@ func (lb *LoadBalancingNode) GetNode() *SipNode {
 		})
 		return lb.SipNodes[0]
 	case DistribWeighted:
-		panic("Not implemented yet")
+		panic("not implemented yet")
 	default: // DistribRandom
 		return lb.SipNodes[RandomNum(len(lb.SipNodes))]
 	}
@@ -177,7 +180,10 @@ func (lb *LoadBalancingNode) ProbeSipNodes() {
 
 		lb.callsCache[callid] = cc
 
-		ServerConnection.WriteTo(probemsg.Bytes(), sn.UdpAddr)
+		_, err := ServerConnection.WriteTo(probemsg.Bytes(), sn.UdpAddr)
+		if err != nil {
+			log.Println("Failed to send probing message - error:", err)
+		}
 	}
 }
 
@@ -191,10 +197,12 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 
 		if cc.IsProbing {
 			defer cc.mu.Unlock()
+
 			if cc.timeoutTmr.Stop() {
 				cc.SIPNode.SetAlive(true)
 				LoadBalancer.DeleteCallCache(cc.CallID)
 			}
+
 			return nil, nil
 		}
 
@@ -209,10 +217,10 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 				cc.CallStatus = StatusProgressing
 			case IsPositive(stsCode):
 				cc.CallStatus = StatusAnswered
-				cc.clearTmr = getClearTimer(cc.CallID)
+				cc.clearTmr = createClearTimer(cc.CallID)
 			case IsNegative(stsCode):
 				cc.CallStatus = StatusRejected
-				cc.clearTmr = getClearTimer(cc.CallID)
+				cc.clearTmr = createClearTimer(cc.CallID)
 			}
 		} else {
 			sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
@@ -252,12 +260,11 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 	}
 
 	cc = &CallCache{
-		SIPNode:    sn,
-		OtherAddr:  azrAddr,
-		IsOutbound: isout,
-		CallID:     sipmsg.CallID,
-		FromTag:    sipmsg.FromTag,
-		// ViaBranch:  sipmsg.ViaBranch,
+		SIPNode:      sn,
+		OtherAddr:    azrAddr,
+		IsOutbound:   isout,
+		CallID:       sipmsg.CallID,
+		FromTag:      sipmsg.FromTag,
 		OwnViaBranch: GetViaBranch(),
 		CallStatus:   StatusProgressing,
 		Messages:     []string{sipmsg.String()},
@@ -277,7 +284,7 @@ func (cc *CallCache) timeoutHandler() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 
-	cc.clearTmr = getClearTimer(cc.CallID)
+	cc.clearTmr = createClearTimer(cc.CallID)
 
 	if cc.IsProbing {
 		cc.SIPNode.SetAlive(false)
@@ -292,10 +299,6 @@ func (cc *CallCache) StartTimeoutTimer() {
 	defer cc.mu.Unlock()
 
 	cc.timeoutTmr = time.AfterFunc(timeoutTimerDuration, func() { cc.timeoutHandler() })
-}
-
-func getClearTimer(callID string) *time.Timer {
-	return time.AfterFunc(clearTimerDuration, func() { LoadBalancer.DeleteCallCache(callID) })
 }
 
 func (sn *SipNode) AddHit() {
