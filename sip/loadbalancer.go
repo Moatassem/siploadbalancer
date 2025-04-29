@@ -370,7 +370,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 				MsgType: RESPONSE,
 				StartLine: SipStartLine{
 					StatusCode:   503,
-					ReasonPhrase: "No Available servers",
+					ReasonPhrase: "No Available Servers",
 				},
 				Headers: hdrs,
 			}
