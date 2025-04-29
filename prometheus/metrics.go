@@ -1,13 +1,3 @@
-/*
-# Software Name : Newkah-SIP-Layer
-# SPDX-FileCopyrightText: Copyright (c) 2025 - Orange Business - OINIS/Services/NSF
-
-# Authors:
-# - Moatassem Talaat <moatassem.talaat@orange.com>
-
----
-*/
-
 package prometheus
 
 import (

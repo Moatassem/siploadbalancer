@@ -1,12 +1,3 @@
-/*
-# Software Name : SIPLoadBalancer
-
-# Author:
-# - Moatassem Talaat <eng.moatassem@gmail.com>
-
----
-*/
-
 package webserver
 
 import (
@@ -20,14 +11,16 @@ import (
 	"siploadbalancer/sip"
 )
 
-func StartWS(ip net.IP) {
+func StartWS(ip net.IP, hp int) {
 	r := http.NewServeMux()
 
 	r.HandleFunc("GET /api/v1/stats", serveStats)
+	r.HandleFunc("GET /api/v1/config", serveConfig)
+	r.HandleFunc("GET /api/v1/cache", serveCache)
 	r.Handle("GET /metrics", Prometrics.Handler())
 	r.HandleFunc("GET /", serveHome)
 
-	ws := fmt.Sprintf("%s:%d", ip, HttpTcpPort)
+	ws := fmt.Sprintf("%s:%d", ip, hp)
 
 	WtGrp.Add(1)
 	go func() {
@@ -43,6 +36,25 @@ func StartWS(ip net.IP) {
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	_, err := w.Write(fmt.Appendf(nil, "<h1>%s API Webserver</h1>\n", BUE))
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func serveConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	response, _ := json.Marshal(sip.LoadBalancer)
+	_, err := w.Write(response)
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func serveCache(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	response, _ := json.Marshal(sip.LoadBalancer.CallsCache())
+	_, err := w.Write(response)
 	if err != nil {
 		log.Println(err)
 	}

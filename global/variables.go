@@ -7,18 +7,15 @@ import (
 )
 
 const (
-	BUE             string = "SipLoadBalancer/v1.0"
-	DeltaRune       rune   = 'a' - 'A'
-	MagicCookie     string = "z9hG4bK"
-	ViaHeader       string = "Via"
-	SipVersion      string = "SIP/2.0"
-	ProbingInterval        = 30
+	BUE            string = "SipLoadBalancer/v1.0"
+	DeltaRune      rune   = 'a' - 'A'
+	MagicCookie    string = "z9hG4bK"
+	ViaHeader      string = "Via"
+	SipVersion     string = "SIP/2.0"
+	ProbingTimeout int    = 3
 )
 
 var (
-	SipUdpPort  int
-	HttpTcpPort int
-
 	Prometrics *prometheus.Metrics
 	WtGrp      sync.WaitGroup
 )

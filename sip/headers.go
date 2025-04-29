@@ -32,7 +32,7 @@ func (hdrs *SipHeaders) AddTopVia(viaBranch string) {
 	hdrs.AddTopHeaderValue(ViaHeader, buildViaHeader(viaBranch))
 }
 
-func (hdrs *SipHeaders) Add(headerName string, headerValue string) {
+func (hdrs *SipHeaders) Add(headerName string, headerValues ...string) {
 	idx := hdrs.GetHeaderIndex(headerName)
 	var hnm string
 	if idx == -1 {
@@ -41,7 +41,7 @@ func (hdrs *SipHeaders) Add(headerName string, headerValue string) {
 	} else {
 		hnm = hdrs.hnames[idx]
 	}
-	hdrs.hmap[hnm] = append(hdrs.hmap[hnm], headerValue)
+	hdrs.hmap[hnm] = append(hdrs.hmap[hnm], headerValues...)
 }
 
 func (hdrs *SipHeaders) AddTopHeaderValue(headerName string, topValue string) {

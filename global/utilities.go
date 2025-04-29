@@ -205,13 +205,22 @@ func (m Method) IsDialogueCreating() bool {
 
 // =====================================================
 
-func Find[T any](items []*T, predict func(*T) bool) *T {
+func Find[T any](items []*T, predicate func(*T) bool) *T {
 	for _, item := range items {
-		if predict(item) {
+		if predicate(item) {
 			return item
 		}
 	}
 	return nil
+}
+
+func All[T any](items []*T, predicate func(*T) bool) bool {
+	for _, item := range items {
+		if !predicate(item) {
+			return false
+		}
+	}
+	return true
 }
 
 func IsProvisional(sc int) bool {

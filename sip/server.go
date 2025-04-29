@@ -1,13 +1,31 @@
 package sip
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"siploadbalancer/global"
-	"strings"
 	"time"
 )
+
+type inputData struct {
+	IPv4                 string `json:"ipv4"`
+	SipUdpPort           int    `json:"sipUdpPort"`
+	HttpPort             int    `json:"httpPort"`
+	CachingServer        string `json:"cachingServer"`
+	LoadbalanceMode      string `json:"loadbalancemode"`
+	ProbingInterval      int    `json:"probingInterval"`
+	TimeoutTimerDuration int    `json:"timeoutTimerDuration"`
+	ClearTimerDuration   int    `json:"clearTimerDuration"`
+	Servers              []struct {
+		Ipv4        string `json:"ipv4"`
+		Port        int    `json:"port"`
+		Description string `json:"description"`
+		Weight      int    `json:"weight"`
+		Cost        int    `json:"cost"`
+	} `json:"servers"`
+}
 
 func startListening(ip net.IP, prt int) (*net.UDPConn, error) {
 	socket := net.UDPAddr{}
@@ -16,19 +34,25 @@ func startListening(ip net.IP, prt int) (*net.UDPConn, error) {
 	return net.ListenUDP("udp", &socket)
 }
 
-func StartServer(redisskt, ipv4, lbmode string, sipskts []string) net.IP {
-	var err error
+func StartServer(data []byte) (net.IP, int) {
+	var (
+		inputData inputData
+		err       error
+	)
 
-	serverIP := net.ParseIP(ipv4)
+	err = json.Unmarshal(data, &inputData)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	serverIP := net.ParseIP(inputData.IPv4)
 	fmt.Print("Attempting to listen on SIP...")
-	ServerConnection, err = startListening(serverIP, global.SipUdpPort)
+	ServerConnection, err = startListening(serverIP, inputData.SipUdpPort)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
-
-	startWorkers()
-	udpLoopWorkers()
 	fmt.Println("Success: UDP", ServerConnection.LocalAddr().String())
 
 	fmt.Print("Checking Caching Server...")
@@ -40,44 +64,19 @@ func StartServer(redisskt, ipv4, lbmode string, sipskts []string) net.IP {
 	// fmt.Printf("Ready! [%s]\n", ripv4skt)
 	fmt.Println("Skipped!")
 
-	sipnodes := make([]*SipNode, 0, len(sipskts))
-	for _, sipskt := range sipskts {
-		skt := strings.Split(sipskt, ":")
-		if len(skt) != 2 {
-			fmt.Printf("SIP Server: %s - badly formatted - format: IPv4:Port;IPv4:Port;...", sipskt)
-			continue
-		}
-		sipIpv4 := net.ParseIP(skt[0])
-		if sipIpv4 == nil {
-			fmt.Printf("SIP Server IPv4: %s - invalid", skt[0])
-			continue
-		}
-		sipprt := global.Str2Int[int](skt[1])
-		if sipprt == 0 {
-			fmt.Printf("SIP Server Port: %s - invalid", skt[1])
-			continue
-		}
-		wt := 100
-		sipnodes = append(sipnodes, &SipNode{
-			UdpAddr:     &net.UDPAddr{IP: sipIpv4, Port: sipprt, Zone: ""},
-			Cost:        100,
-			Weight:      wt,
-			Description: "",
-			IsAlive:     false,
-			accWeight:   wt,
-			Key:         global.GetTagOrKey(),
-		})
-	}
+	LoadBalancer = NewLoadBalancer(inputData)
 
-	LoadBalancer = NewLoadBalancer(lbmode, sipnodes)
+	startWorkers()
+	udpLoopWorkers()
 	periodicProbing()
 
-	return serverIP
+	return serverIP, inputData.HttpPort
 }
 
 func periodicProbing() {
 	global.WtGrp.Add(1)
-	ticker := time.NewTicker(global.ProbingInterval * time.Second)
+	duration := time.Duration(LoadBalancer.ProbingInterval) * time.Second
+	ticker := time.NewTicker(duration)
 	go func() {
 		defer global.WtGrp.Done()
 		for range ticker.C {

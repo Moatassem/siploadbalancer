@@ -1,0 +1,25 @@
+{
+    "ipv4": "192.168.1.2",
+    "sipUdpPort": 5060,
+    "httpPort": 9080,
+    "loadbalancemode": "RoundRobin",
+    "probingInterval": 15,
+    "timeoutTimerDuration": 32,
+    "clearTimerDuration": 5,
+    "servers": [
+        {
+            "ipv4": "192.168.1.2",
+            "port": 5070,
+            "description": "SR1",
+            "weight": 3,
+            "cost": 5
+        },
+        {
+            "ipv4": "192.168.1.2",
+            "port": 5077,
+            "description": "SR2",
+            "weight": 2,
+            "cost": 5
+        }
+    ]
+}
