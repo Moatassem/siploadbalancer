@@ -20,27 +20,6 @@
             "description": "SR2",
             "weight": 2,
             "cost": 5
-        },
-        {
-            "ipv4": "192.168.1.2",
-            "port": 5070,
-            "description": "SR3",
-            "weight": 2,
-            "cost": 5
-        },
-        {
-            "ipv4": "192.168.1.2",
-            "port": 5075,
-            "description": "SR2",
-            "weight": 2,
-            "cost": 5
-        },
-        {
-            "ipv4": "192.168.1.2",
-            "port": 5070,
-            "description": "SR2",
-            "weight": 2,
-            "cost": 5
         }
     ]
 }

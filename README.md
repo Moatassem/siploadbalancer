@@ -13,3 +13,10 @@ Health Checks: Regularly check the status of each server to ensure it's capable 
 Session Persistence (Sticky Sessions): Ensures requests from the same client are always sent to the same server.
 Failover: Ensures requests are rerouted to healthy servers if a server fails.
 Scalability: Ability to handle increasing traffic by adding more servers.
+
+- See existing data.json to edit the configuration
+
+- Existing API calls:
+  GET /api/v1/stats >> Get general stats of the server
+  GET /api/v1/config >> Get running server configuration
+  GET /api/v1/cache >> Get cached SIP sessions
