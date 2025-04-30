@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"slices"
 	"strings"
 
 	"golang.org/x/exp/rand"
@@ -205,22 +206,34 @@ func (m Method) IsDialogueCreating() bool {
 
 // =====================================================
 
-func Find[T any](items []*T, predicate func(*T) bool) *T {
+func Find[T any](items []T, predicate func(T) bool) T {
+	var out T
 	for _, item := range items {
 		if predicate(item) {
 			return item
 		}
 	}
-	return nil
+	return out
 }
 
-func All[T any](items []*T, predicate func(*T) bool) bool {
+func All[T any](items []T, predicate func(T) bool) bool {
+	if len(items) == 0 {
+		return false
+	}
 	for _, item := range items {
 		if !predicate(item) {
 			return false
 		}
 	}
 	return true
+}
+
+func AddIfNew[T comparable](items []T, item T) ([]T, bool) {
+	ok := slices.Contains(items, item)
+	if !ok {
+		items = append(items, item)
+	}
+	return items, ok
 }
 
 func IsProvisional(sc int) bool {

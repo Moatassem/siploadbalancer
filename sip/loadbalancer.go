@@ -41,7 +41,7 @@ type (
 		Key     string
 		Hits    int
 		LastHit time.Time
-		IsAlive bool
+		isAlive bool
 
 		mu sync.RWMutex
 	}
@@ -52,7 +52,7 @@ type (
 	CallCache struct {
 		SIPNode      *SipNode
 		OtherAddr    *net.UDPAddr
-		IsOutbound   bool
+		IsInbound    bool
 		CallID       string
 		FromTag      string
 		OwnViaBranch string
@@ -79,6 +79,9 @@ const (
 	DistribMostIdle   Distribution = "MostIdle"
 	DistribWeighted   Distribution = "Weighted"
 	DistribRandom     Distribution = "Random"
+
+	LongTimeFormat string = "Mon, 02 Jan 2006 15:04:05 GMT"
+	JsonTimeFormat string = "2006-01-02T15:04:05Z"
 
 	TimeoutTimerDD = 32 * time.Second // DD = Default Duration
 	ClearTimerDD   = 10 * time.Second
@@ -116,7 +119,7 @@ func NewLoadBalancer(inputData inputData) *LoadBalancingNode {
 			Cost:        srvr.Cost,
 			Weight:      srvr.Weight,
 			accWeight:   srvr.Weight,
-			IsAlive:     false,
+			isAlive:     false,
 			Hits:        0,
 		}
 
@@ -193,48 +196,49 @@ func (lb *LoadBalancingNode) GetNode() *SipNode {
 	defer lb.mu.Unlock()
 
 	var outNode *SipNode
-
-	switch lb.Distribution {
-	case DistribRoundRobin:
-		nd := lb.SipNodes[lb.nodeIdx]
-		lb.nodeIdx++
-		if lb.nodeIdx >= len(lb.SipNodes) {
-			lb.nodeIdx = 0
-		}
-		outNode = nd
-	case DistribLeastHit:
-		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Hits, b.Hits) })
-		outNode = lb.SipNodes[0]
-	case DistribLeastCost:
-		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Cost, b.Cost) })
-		outNode = lb.SipNodes[0]
-	case DistribMostIdle:
-		slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int {
-			if a.LastHit.Before(b.LastHit) {
-				return -1
+	for len(lb.SipNodes) > 0 && outNode == nil {
+		switch lb.Distribution {
+		case DistribRoundRobin:
+			nd := lb.SipNodes[lb.nodeIdx]
+			lb.nodeIdx++
+			if lb.nodeIdx >= len(lb.SipNodes) {
+				lb.nodeIdx = 0
 			}
-			if a.LastHit.After(b.LastHit) {
-				return 1
+			outNode = nd
+		case DistribLeastHit:
+			slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Hits, b.Hits) })
+			outNode = lb.SipNodes[0]
+		case DistribLeastCost:
+			slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int { return cmp.Compare(a.Cost, b.Cost) })
+			outNode = lb.SipNodes[0]
+		case DistribMostIdle:
+			slices.SortFunc(lb.SipNodes, func(a, b *SipNode) int {
+				if a.LastHit.Before(b.LastHit) {
+					return -1
+				}
+				if a.LastHit.After(b.LastHit) {
+					return 1
+				}
+				return 0
+			})
+			outNode = lb.SipNodes[0]
+		case DistribWeighted:
+			ndKey := lb.SipNodesLB[lb.nodeIdx]
+			lb.nodeIdx++
+			if lb.nodeIdx >= len(lb.SipNodesLB) {
+				lb.nodeIdx = 0
 			}
-			return 0
-		})
-		outNode = lb.SipNodes[0]
-	case DistribWeighted:
-		ndKey := lb.SipNodesLB[lb.nodeIdx]
-		lb.nodeIdx++
-		if lb.nodeIdx >= len(lb.SipNodesLB) {
-			lb.nodeIdx = 0
+			outNode = lb.sipNodesMap[ndKey]
+		default: // DistribRandom
+			outNode = lb.SipNodes[RandomNum(len(lb.SipNodes))]
 		}
-		outNode = lb.sipNodesMap[ndKey]
-	default: // DistribRandom
-		outNode = lb.SipNodes[RandomNum(len(lb.SipNodes))]
-	}
 
-	if !outNode.GetAlive() {
-		if All(lb.SipNodes, func(x *SipNode) bool { return !x.GetAlive() }) {
-			return nil
+		if outNode.IsDead() {
+			if All(lb.SipNodes, func(x *SipNode) bool { return x.IsDead() }) {
+				return nil
+			}
+			outNode = nil
 		}
-		return lb.GetNode()
 	}
 
 	return outNode
@@ -315,7 +319,9 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 			return nil, nil
 		}
 
-		cc.Messages = append(cc.Messages, sipmsg.String())
+		var duplicateMsg bool
+		cc.Messages, duplicateMsg = AddIfNew(cc.Messages, sipmsg.String())
+
 		if sipmsg.IsResponse() {
 			cc.timeoutTmr.Stop()
 			sipmsg.Headers.DropTopVia()
@@ -332,8 +338,17 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 				cc.clearTmr = createClearTimer(cc.CallID)
 			}
 		} else {
+			if cc.IsInbound && duplicateMsg && cc.SIPNode.IsDead() { // if sipnode dies in the middle
+				defer cc.mu.Unlock()
+				_, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "Server Unreachable").Bytes(), srcAddr)
+				if err != nil {
+					log.Println("Failed to send response message - error:", err)
+				}
+				return nil, nil
+			}
 			sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
 		}
+
 		cc.mu.Unlock()
 
 		if AreUAddrsEqual(cc.OtherAddr, srcAddr) {
@@ -344,47 +359,28 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 	}
 
 	if sipmsg.IsResponse() || !sipmsg.GetMethod().IsDialogueCreating() {
-		log.Printf("Message [%s] cannot initiate a dialogue - Dropping", sipmsg.String())
+		// log.Printf("Message [%s] cannot initiate a dialogue - Dropping", sipmsg.String())
 		return nil, nil
 	}
 
 	var rmtAddr, azrAddr *net.UDPAddr
-	var isout bool
+	var isingress bool
 
 	sn := Find(lb.SipNodes, func(x *SipNode) bool { return AreUAddrsEqual(x.UdpAddr, srcAddr) })
 	if sn == nil { // inbound from Access to Core
 		sn = lb.GetNode()
 		if sn == nil {
 			log.Printf("No more alive servers!")
-
-			hdrs := NewSipHeaders()
-			hdrs.Add(Via, sipmsg.Headers.GetHeaderValues(ViaHeader)...)
-			hdrs.Add(From, sipmsg.Headers.GetHeaderValues(From)...)
-			hdrs.Add(To, sipmsg.Headers.GetHeaderValues(To)...)
-			hdrs.Add(Call_ID, sipmsg.CallID)
-			hdrs.Add(CSeq, sipmsg.Headers.GetHeaderValues(CSeq)...)
-			hdrs.Add(Server, BUE)
-			hdrs.Add(Content_Length, "0")
-
-			rspnsmsg := &SipMessage{
-				MsgType: RESPONSE,
-				StartLine: SipStartLine{
-					StatusCode:   503,
-					ReasonPhrase: "No Available Servers",
-				},
-				Headers: hdrs,
-			}
-
-			_, err := ServerConnection.WriteTo(rspnsmsg.Bytes(), srcAddr)
+			_, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "No Available Servers").Bytes(), srcAddr)
 			if err != nil {
 				log.Println("Failed to send response message - error:", err)
 			}
-
 			return nil, nil
 		}
 		sn.AddHit()
 		azrAddr = srcAddr
 		rmtAddr = sn.UdpAddr
+		isingress = true
 	} else { // outbound from Core to Access
 		msgTargetAddr, err := BuildSipUdpSocket(sipmsg.StartLine.Host, sipmsg.StartLine.Port)
 		if err != nil {
@@ -393,13 +389,12 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		}
 		azrAddr = msgTargetAddr
 		rmtAddr = msgTargetAddr
-		isout = true
 	}
 
 	cc = &CallCache{
 		SIPNode:      sn,
 		OtherAddr:    azrAddr,
-		IsOutbound:   isout,
+		IsInbound:    isingress,
 		CallID:       sipmsg.CallID,
 		FromTag:      sipmsg.FromTag,
 		OwnViaBranch: GetViaBranch(),
@@ -446,6 +441,10 @@ func (cc *CallCache) StartTimeoutTimer() {
 	cc.timeoutTmr = time.AfterFunc(duration, func() { cc.timeoutHandler() })
 }
 
+func (sn *SipNode) String() string {
+	return fmt.Sprintf("%s (%s)", sn.Description, sn.UdpAddr)
+}
+
 func (sn *SipNode) AddHit() {
 	sn.mu.Lock()
 	defer sn.mu.Unlock()
@@ -458,12 +457,23 @@ func (sn *SipNode) SetAlive(flag bool) {
 	sn.mu.Lock()
 	defer sn.mu.Unlock()
 
-	sn.IsAlive = flag
+	if sn.isAlive != flag {
+		stamp := time.Now().UTC().Format(JsonTimeFormat)
+		var newsts string
+		if flag {
+			newsts = "ALIVE"
+		} else {
+			newsts = "DEAD"
+		}
+		fmt.Printf("%s became %s on %s\n", sn, newsts, stamp)
+	}
+
+	sn.isAlive = flag
 }
 
-func (sn *SipNode) GetAlive() bool {
+func (sn *SipNode) IsDead() bool {
 	sn.mu.RLock()
 	defer sn.mu.RUnlock()
 
-	return sn.IsAlive
+	return !sn.isAlive
 }

@@ -18,28 +18,26 @@ type SipMessage struct {
 	ViaBranch string
 }
 
-func NewRequestMessage(md Method, up string) *SipMessage {
-	sipmsg := &SipMessage{
-		MsgType: REQUEST,
-		StartLine: SipStartLine{
-			Method: md,
-		},
-	}
-	return sipmsg
-}
+func BuildResponseMessage(rqstmsg *SipMessage, sc int, rp string) *SipMessage {
+	hdrs := NewSipHeaders()
+	hdrs.Add(Via, rqstmsg.Headers.GetHeaderValues(ViaHeader)...)
+	hdrs.Add(From, rqstmsg.Headers.GetHeaderValues(From)...)
+	hdrs.Add(To, rqstmsg.Headers.GetHeaderValues(To)...)
+	hdrs.Add(Call_ID, rqstmsg.CallID)
+	hdrs.Add(CSeq, rqstmsg.Headers.GetHeaderValues(CSeq)...)
+	hdrs.Add(Server, BUE)
+	hdrs.Add(Content_Length, "0")
 
-func NewResponseMessage(sc int, rp string) *SipMessage {
-	if sc < 100 || sc > 699 {
-		sc = 400
-	}
-	sipmsg := &SipMessage{
+	rspnsmsg := &SipMessage{
 		MsgType: RESPONSE,
 		StartLine: SipStartLine{
 			StatusCode:   sc,
 			ReasonPhrase: rp,
 		},
+		Headers: hdrs,
 	}
-	return sipmsg
+
+	return rspnsmsg
 }
 
 // ==========================================================================
