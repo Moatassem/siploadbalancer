@@ -1,9 +1,6 @@
 /*
 # Software Name : SIPLoadBalancer
 
-# Author:
-# - Moatassem Talaat <eng.moatassem@gmail.com>
-
 ---
 */
 
@@ -20,7 +17,7 @@ import (
 )
 
 func greeting() {
-	fmt.Printf("Welcome to %s - Product of OINIS NSF\n", global.BUE)
+	fmt.Printf("Welcome to %s - Product of MT\n", global.BUE)
 }
 
 func main() {
