@@ -18,6 +18,28 @@ type SipMessage struct {
 	ViaBranch string
 }
 
+func BuildOptionsMessage(viaBranch, localstr, remotestr, callid, frmTag string) *SipMessage {
+	hdrs := NewSipHeaders()
+	hdrs.Add(Via, buildViaHeader(viaBranch))
+	hdrs.Add(From, fmt.Sprintf("<sip:ping@%s>;tag=%s", localstr, frmTag))
+	hdrs.Add(To, fmt.Sprintf("<sip:ping@%s>", remotestr))
+	hdrs.Add(Call_ID, callid)
+	hdrs.Add(CSeq, fmt.Sprintf("911 %s", OPTIONS))
+	hdrs.Add(Contact, fmt.Sprintf("<sip:%s>", localstr))
+	hdrs.Add(Max_Forwards, "70")
+	hdrs.Add(User_Agent, BUE)
+	hdrs.Add(Content_Length, "0")
+
+	return &SipMessage{
+		MsgType: REQUEST,
+		StartLine: SipStartLine{
+			Method: OPTIONS,
+			RUri:   fmt.Sprintf("sip:%s", remotestr),
+		},
+		Headers: hdrs,
+	}
+}
+
 func BuildResponseMessage(rqstmsg *SipMessage, sc int, rp string) *SipMessage {
 	hdrs := NewSipHeaders()
 	hdrs.Add(Via, rqstmsg.Headers.GetHeaderValues(ViaHeader)...)

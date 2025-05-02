@@ -261,25 +261,7 @@ func (lb *LoadBalancingNode) ProbeSipNodes() {
 		localstr := ServerConnection.LocalAddr().String()
 		remotestr := sn.UdpAddr.String()
 
-		hdrs := NewSipHeaders()
-		hdrs.Add(Via, buildViaHeader(viaBranch))
-		hdrs.Add(From, fmt.Sprintf("<sip:ping@%s>;tag=%s", localstr, frmTag))
-		hdrs.Add(To, fmt.Sprintf("<sip:ping@%s>", remotestr))
-		hdrs.Add(Call_ID, callid)
-		hdrs.Add(CSeq, fmt.Sprintf("911 %s", OPTIONS))
-		hdrs.Add(Contact, fmt.Sprintf("<sip:%s>", localstr))
-		hdrs.Add(Max_Forwards, "70")
-		hdrs.Add(User_Agent, BUE)
-		hdrs.Add(Content_Length, "0")
-
-		probemsg := &SipMessage{
-			MsgType: REQUEST,
-			StartLine: SipStartLine{
-				Method: OPTIONS,
-				RUri:   fmt.Sprintf("sip:%s", remotestr),
-			},
-			Headers: hdrs,
-		}
+		probemsg := BuildOptionsMessage(viaBranch, localstr, remotestr, callid, frmTag)
 
 		cc := &CallCache{
 			SIPNode:      sn,
@@ -293,10 +275,7 @@ func (lb *LoadBalancingNode) ProbeSipNodes() {
 
 		lb.callsCache[callid] = cc
 
-		_, err := ServerConnection.WriteTo(probemsg.Bytes(), sn.UdpAddr)
-		if err != nil {
-			log.Println("Failed to send probing message - error:", err)
-		}
+		sendMessage(probemsg, sn.UdpAddr)
 	}
 }
 
@@ -340,10 +319,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		} else {
 			if cc.IsInbound && duplicateMsg && cc.SIPNode.IsDead() { // if sipnode dies in the middle
 				defer cc.mu.Unlock()
-				_, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "Server Unreachable").Bytes(), srcAddr)
-				if err != nil {
-					log.Println("Failed to send response message - error:", err)
-				}
+				sendMessage(BuildResponseMessage(sipmsg, 503, "Server Unreachable"), srcAddr)
 				return nil, nil
 			}
 			sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
@@ -364,9 +340,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 	}
 
 	if !sipmsg.Headers.DecrementMaxForwards() {
-		if _, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 483, "Too Many Hops").Bytes(), srcAddr); err != nil {
-			log.Println("Failed to send response message - error:", err)
-		}
+		sendMessage(BuildResponseMessage(sipmsg, 483, "Too Many Hops"), srcAddr)
 		return nil, nil
 	}
 
@@ -378,9 +352,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		sn = lb.GetNode()
 		if sn == nil {
 			log.Printf("No more alive servers!")
-			if _, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "No Available Servers").Bytes(), srcAddr); err != nil {
-				log.Println("Failed to send response message - error:", err)
-			}
+			sendMessage(BuildResponseMessage(sipmsg, 503, "No Available Servers"), srcAddr)
 			return nil, nil
 		}
 		sn.AddHit()
@@ -482,4 +454,11 @@ func (sn *SipNode) IsDead() bool {
 	defer sn.mu.RUnlock()
 
 	return !sn.isAlive
+}
+
+func sendMessage(sipmsg *SipMessage, rmtUDPAddr *net.UDPAddr) {
+	_, err := ServerConnection.WriteTo(sipmsg.Bytes(), rmtUDPAddr)
+	if err != nil {
+		log.Println("Failed to send response message - error:", err)
+	}
 }
