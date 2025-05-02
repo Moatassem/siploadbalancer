@@ -363,6 +363,13 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		return nil, nil
 	}
 
+	if !sipmsg.Headers.DecrementMaxForwards() {
+		if _, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 483, "Too Many Hops").Bytes(), srcAddr); err != nil {
+			log.Println("Failed to send response message - error:", err)
+		}
+		return nil, nil
+	}
+
 	var rmtAddr, azrAddr *net.UDPAddr
 	var isingress bool
 
@@ -371,8 +378,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		sn = lb.GetNode()
 		if sn == nil {
 			log.Printf("No more alive servers!")
-			_, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "No Available Servers").Bytes(), srcAddr)
-			if err != nil {
+			if _, err := ServerConnection.WriteTo(BuildResponseMessage(sipmsg, 503, "No Available Servers").Bytes(), srcAddr); err != nil {
 				log.Println("Failed to send response message - error:", err)
 			}
 			return nil, nil

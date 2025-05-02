@@ -19,6 +19,25 @@ func NewSipHeaders() *SipHeaders {
 	return &headers
 }
 
+func (hdrs *SipHeaders) DecrementMaxForwards() bool {
+	idx := hdrs.GetHeaderIndex(Max_Forwards)
+	if idx == -1 {
+		fmt.Printf("Could not find header [%s] values to amend", Max_Forwards)
+		return false
+	}
+
+	mf := Str2Int[int](hdrs.hmap[hdrs.hnames[idx]][0])
+	mf--
+
+	if mf <= 0 {
+		return false
+	}
+
+	hdrs.hmap[hdrs.hnames[idx]] = []string{Int2Str(mf)}
+
+	return true
+}
+
 func (hdrs *SipHeaders) DropTopVia() {
 	hdrs.DropTopHeaderValue(ViaHeader)
 }
