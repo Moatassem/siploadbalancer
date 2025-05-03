@@ -2,6 +2,7 @@ package global
 
 import (
 	"regexp"
+	"siploadbalancer/cl"
 	"siploadbalancer/prometheus"
 	"sync"
 )
@@ -16,8 +17,9 @@ const (
 )
 
 var (
-	Prometrics *prometheus.Metrics
-	WtGrp      sync.WaitGroup
+	CallLimiter *cl.CallLimiter
+	Prometrics  *prometheus.Metrics
+	WtGrp       sync.WaitGroup
 )
 
 var (

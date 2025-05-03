@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"siploadbalancer/cl"
 	"siploadbalancer/global"
 	"siploadbalancer/prometheus"
 	"siploadbalancer/sip"
@@ -26,7 +27,8 @@ func greeting() {
 func main() {
 	greeting()
 	global.Prometrics = prometheus.NewMetrics()
-	ip, hp := sip.StartServer(readJsonFile())
+	ip, hp, rate := sip.StartServer(readJsonFile())
+	global.CallLimiter = cl.NewCallLimiter(rate, global.Prometrics, &global.WtGrp)
 	// defer sip.ServerConnection.Close()
 	webserver.StartWS(ip, hp)
 	fmt.Println("LoadBalancer Server Ready!")

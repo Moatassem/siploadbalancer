@@ -10,15 +10,16 @@ import (
 )
 
 type inputData struct {
-	IPv4                 string `json:"ipv4"`
-	SipUdpPort           int    `json:"sipUdpPort"`
-	HttpPort             int    `json:"httpPort"`
-	CachingServer        string `json:"cachingServer"`
-	LoadbalanceMode      string `json:"loadbalancemode"`
-	ProbingInterval      int    `json:"probingInterval"`
-	TimeoutTimerDuration int    `json:"timeoutTimerDuration"`
-	ClearTimerDuration   int    `json:"clearTimerDuration"`
-	Servers              []struct {
+	IPv4                     string `json:"ipv4"`
+	SipUdpPort               int    `json:"sipUdpPort"`
+	HttpPort                 int    `json:"httpPort"`
+	CachingServer            string `json:"cachingServer"`
+	LoadbalanceMode          string `json:"loadbalancemode"`
+	MaxCallAttemptsPerSecond int    `json:"maxCallAttemptsPerSecond"`
+	ProbingInterval          int    `json:"probingInterval"`
+	TimeoutTimerDuration     int    `json:"timeoutTimerDuration"`
+	ClearTimerDuration       int    `json:"clearTimerDuration"`
+	Servers                  []struct {
 		Ipv4        string `json:"ipv4"`
 		Port        int    `json:"port"`
 		Description string `json:"description"`
@@ -34,7 +35,7 @@ func startListening(ip net.IP, prt int) (*net.UDPConn, error) {
 	return net.ListenUDP("udp", &socket)
 }
 
-func StartServer(data []byte) (net.IP, int) {
+func StartServer(data []byte) (net.IP, int, int) {
 	var (
 		inputData inputData
 		err       error
@@ -70,13 +71,14 @@ func StartServer(data []byte) (net.IP, int) {
 	udpLoopWorkers()
 	periodicProbing()
 
-	return serverIP, inputData.HttpPort
+	return serverIP, inputData.HttpPort, inputData.MaxCallAttemptsPerSecond
 }
 
 func periodicProbing() {
 	global.WtGrp.Add(1)
 	duration := time.Duration(LoadBalancer.ProbingInterval) * time.Second
 	ticker := time.NewTicker(duration)
+	LoadBalancer.ProbeSipNodes() // to run once when system starts
 	go func() {
 		defer global.WtGrp.Done()
 		for range ticker.C {

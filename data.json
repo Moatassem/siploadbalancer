@@ -3,6 +3,7 @@
     "sipUdpPort": 5060,
     "httpPort": 9080,
     "loadbalancemode": "RoundRobin",
+    "maxCallAttemptsPerSecond": 10000,
     "probingInterval": 15,
     "timeoutTimerDuration": 32,
     "clearTimerDuration": 5,

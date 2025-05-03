@@ -248,6 +248,7 @@ func (lb *LoadBalancingNode) DeleteCallCache(callID string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	delete(lb.callsCache, callID)
+	Prometrics.ConSessions.Dec()
 }
 
 func (lb *LoadBalancingNode) ProbeSipNodes() {
@@ -274,6 +275,7 @@ func (lb *LoadBalancingNode) ProbeSipNodes() {
 		cc.StartTimeoutTimer()
 
 		lb.callsCache[callid] = cc
+		Prometrics.ConSessions.Inc()
 
 		sendMessage(probemsg, sn.UdpAddr)
 	}
@@ -349,6 +351,10 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 
 	sn := Find(lb.SipNodes, func(x *SipNode) bool { return AreUAddrsEqual(x.UdpAddr, srcAddr) })
 	if sn == nil { // inbound from Access to Core
+		if !CallLimiter.CanAcceptNewSession() {
+			sendMessage(BuildResponseMessage(sipmsg, 480, "Call Limiter Exceeded"), srcAddr)
+			return nil, nil
+		}
 		sn = lb.GetNode()
 		if sn == nil {
 			log.Printf("No more alive servers!")
@@ -383,6 +389,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 
 	lb.mu.Lock()
 	lb.callsCache[sipmsg.CallID] = cc
+	Prometrics.ConSessions.Inc()
 	lb.mu.Unlock()
 
 	sipmsg.Headers.AddTopVia(cc.OwnViaBranch)
