@@ -272,7 +272,7 @@ func (lb *LoadBalancingNode) ProbeSipNodes() {
 			CallStatus:   StatusProgressing,
 			IsProbing:    true,
 		}
-		cc.StartTimeoutTimer()
+		cc.StartTimeoutTimer(false)
 
 		lb.callsCache[callid] = cc
 		Prometrics.ConSessions.Inc()
@@ -311,10 +311,13 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 			switch {
 			case IsProvisional(stsCode):
 				cc.CallStatus = StatusProgressing
+				cc.StartTimeoutTimer(true)
 			case IsPositive(stsCode):
+				cc.timeoutTmr.Stop()
 				cc.CallStatus = StatusAnswered
 				cc.clearTmr = createClearTimer(cc.CallID)
 			case IsNegative(stsCode):
+				cc.timeoutTmr.Stop()
 				cc.CallStatus = StatusRejected
 				cc.clearTmr = createClearTimer(cc.CallID)
 			}
@@ -385,7 +388,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 		CallStatus:   StatusProgressing,
 		Messages:     []string{sipmsg.String()},
 	}
-	cc.StartTimeoutTimer()
+	cc.StartTimeoutTimer(false)
 
 	lb.mu.Lock()
 	lb.callsCache[sipmsg.CallID] = cc
@@ -411,7 +414,7 @@ func (cc *CallCache) timeoutHandler() {
 	cc.CallStatus = StatusTimedout
 }
 
-func (cc *CallCache) StartTimeoutTimer() {
+func (cc *CallCache) StartTimeoutTimer(dblDuration bool) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 
@@ -423,6 +426,9 @@ func (cc *CallCache) StartTimeoutTimer() {
 	}
 
 	duration := time.Duration(interval) * time.Second
+	if dblDuration {
+		duration *= 2
+	}
 	cc.timeoutTmr = time.AfterFunc(duration, func() { cc.timeoutHandler() })
 }
 
