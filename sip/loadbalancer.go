@@ -415,8 +415,10 @@ func (cc *CallCache) timeoutHandler() {
 }
 
 func (cc *CallCache) StartTimeoutTimer(dblDuration bool) {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
+	if !dblDuration {
+		cc.mu.Lock()
+		defer cc.mu.Unlock()
+	}
 
 	var interval int
 	if cc.IsProbing {
