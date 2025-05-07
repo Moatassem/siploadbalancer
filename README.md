@@ -18,6 +18,8 @@ Very fast load balancer for _UDP SIP traffic_
 - **Failover**: Ensures requests are rerouted to healthy servers if a server fails.
 - **Scalability**: Ability to handle increasing traffic by adding more servers.
 
+## Configuration:
+
 _See existing [data.json](/data.json) to edit the configuration_
 
 ## Existing API calls:
