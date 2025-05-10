@@ -3,12 +3,11 @@ package global
 import (
 	"bytes"
 	"log"
+	"math/rand/v2"
 	"net"
 	"runtime"
 	"slices"
 	"strings"
-
-	"golang.org/x/exp/rand"
 )
 
 func AreUAddrsEqual(addr1, addr2 *net.UDPAddr) bool {
@@ -155,11 +154,11 @@ func LogCallStack(r any) {
 }
 
 func RandomNumMinMax(min int, max int) int {
-	return rand.Intn(max-min+1) + min
+	return rand.IntN(max-min+1) + min
 }
 
 func RandomNum(max int) int {
-	return rand.Intn(max)
+	return rand.IntN(max)
 }
 
 func ASCIIToLower(s string) string {
