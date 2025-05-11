@@ -84,7 +84,7 @@ const (
 	LongTimeFormat string = "Mon, 02 Jan 2006 15:04:05 GMT"
 	JsonTimeFormat string = "2006-01-02T15:04:05Z"
 
-	HitResetDuration = 5 * time.Second
+	HitResetDuration = 1 * time.Hour
 	TimeoutTimerDD   = 32 * time.Second // DD = Default Duration
 	ClearTimerDD     = 10 * time.Second
 )
