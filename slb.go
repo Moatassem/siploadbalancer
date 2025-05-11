@@ -21,17 +21,17 @@ import (
 )
 
 func greeting() {
-	fmt.Printf("Welcome to %s - Product of MT\n", global.BUE)
+	fmt.Printf("Welcome to MT %s\n", global.BUE)
 }
 
 func main() {
 	greeting()
 	global.Prometrics = prometheus.NewMetrics()
-	ip, hp, rate := sip.StartServer(readJsonFile())
+	ip, hp, rate := sip.InitializeServer(readJsonFile())
 	global.CallLimiter = cl.NewCallLimiter(rate, global.Prometrics, &global.WtGrp)
 	// defer sip.ServerConnection.Close()
 	webserver.StartWS(ip, hp)
-	fmt.Println("LoadBalancer Server Ready!")
+	sip.StartSS()
 	global.WtGrp.Wait()
 }
 

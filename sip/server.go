@@ -10,16 +10,18 @@ import (
 )
 
 type inputData struct {
-	IPv4                     string `json:"ipv4"`
-	SipUdpPort               int    `json:"sipUdpPort"`
-	HttpPort                 int    `json:"httpPort"`
-	CachingServer            string `json:"cachingServer"`
+	IPv4          string `json:"ipv4"`
+	SipUdpPort    int    `json:"sipUdpPort"`
+	HttpPort      int    `json:"httpPort"`
+	CachingServer string `json:"cachingServer"`
+
 	LoadbalanceMode          string `json:"loadbalancemode"`
 	MaxCallAttemptsPerSecond int    `json:"maxCallAttemptsPerSecond"`
 	ProbingInterval          int    `json:"probingInterval"`
 	TimeoutTimerDuration     int    `json:"timeoutTimerDuration"`
 	ClearTimerDuration       int    `json:"clearTimerDuration"`
-	Servers                  []struct {
+
+	Servers []struct {
 		Ipv4        string `json:"ipv4"`
 		Port        int    `json:"port"`
 		Description string `json:"description"`
@@ -35,22 +37,20 @@ func startListening(ip net.IP, prt int) (*net.UDPConn, error) {
 	return net.ListenUDP("udp", &socket)
 }
 
-func StartServer(data []byte) (net.IP, int, int) {
+func InitializeServer(data []byte) (net.IP, int, int) {
 	var (
 		inputData inputData
 		err       error
 	)
 
-	err = json.Unmarshal(data, &inputData)
-	if err != nil {
+	if err = json.Unmarshal(data, &inputData); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
 	serverIP := net.ParseIP(inputData.IPv4)
 	fmt.Print("Attempting to listen on SIP...")
-	ServerConnection, err = startListening(serverIP, inputData.SipUdpPort)
-	if err != nil {
+	if ServerConnection, err = startListening(serverIP, inputData.SipUdpPort); err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
@@ -67,11 +67,15 @@ func StartServer(data []byte) (net.IP, int, int) {
 
 	LoadBalancer = NewLoadBalancer(inputData)
 
+	return serverIP, inputData.HttpPort, inputData.MaxCallAttemptsPerSecond
+}
+
+func StartSS() {
 	startWorkers()
 	udpLoopWorkers()
 	periodicProbing()
 
-	return serverIP, inputData.HttpPort, inputData.MaxCallAttemptsPerSecond
+	fmt.Println("SipLoadBalancer Server Ready!")
 }
 
 func periodicProbing() {

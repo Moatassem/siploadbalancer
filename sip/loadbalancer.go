@@ -27,8 +27,9 @@ type (
 		SipNodesLB  []string            `json:"sipNodesLB"`
 		nodeIdx     int                 `json:"-"`
 
-		callsCache map[string]*CallCache //`json:"-"`
-		mu         sync.RWMutex          `json:"-"`
+		hitResetTicker *time.Ticker          `json:"-"`
+		callsCache     map[string]*CallCache `json:"-"`
+		mu             sync.RWMutex          `json:"-"`
 	}
 
 	SipNode struct {
@@ -83,8 +84,9 @@ const (
 	LongTimeFormat string = "Mon, 02 Jan 2006 15:04:05 GMT"
 	JsonTimeFormat string = "2006-01-02T15:04:05Z"
 
-	TimeoutTimerDD = 32 * time.Second // DD = Default Duration
-	ClearTimerDD   = 10 * time.Second
+	HitResetDuration = 5 * time.Second
+	TimeoutTimerDD   = 32 * time.Second // DD = Default Duration
+	ClearTimerDD     = 10 * time.Second
 )
 
 func NewLoadBalancer(inputData inputData) *LoadBalancingNode {
@@ -139,6 +141,9 @@ func NewLoadBalancer(inputData inputData) *LoadBalancingNode {
 		callsCache:  make(map[string]*CallCache),
 	}
 
+	lbn.hitResetTicker = time.NewTicker(HitResetDuration)
+	go lbn.hitResetTickerHandler()
+
 	return lbn
 }
 
@@ -175,6 +180,16 @@ func computeSipNodesLB(snlst []*SipNode) []string {
 	}
 
 	return lblst
+}
+
+func (lb *LoadBalancingNode) hitResetTickerHandler() {
+	for range lb.hitResetTicker.C {
+		lb.mu.Lock()
+		for _, sn := range lb.SipNodes {
+			sn.ResetHits()
+		}
+		lb.mu.Unlock()
+	}
 }
 
 func (lb *LoadBalancingNode) CallsCacheCount() int {
@@ -354,7 +369,7 @@ func (lb *LoadBalancingNode) AddOrGetCallCache(sipmsg *SipMessage, srcAddr *net.
 
 	sn := Find(lb.SipNodes, func(x *SipNode) bool { return AreUAddrsEqual(x.UdpAddr, srcAddr) })
 	if sn == nil { // inbound from Access to Core
-		if !CallLimiter.CanAcceptNewSession() {
+		if CallLimiter.IsExceeded() {
 			sendMessage(BuildResponseMessage(sipmsg, 480, "Call Limiter Exceeded"), srcAddr)
 			return nil, nil
 		}
@@ -444,6 +459,13 @@ func (sn *SipNode) AddHit() {
 
 	sn.Hits++ // TODO: find a way to rest this count!
 	sn.LastHit = time.Now().UTC()
+}
+
+func (sn *SipNode) ResetHits() {
+	sn.mu.Lock()
+	defer sn.mu.Unlock()
+
+	sn.Hits = 0
 }
 
 func (sn *SipNode) SetAlive(flag bool) {
