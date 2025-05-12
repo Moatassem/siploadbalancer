@@ -1,4 +1,4 @@
-# SIP Load Balancer v1.0
+# SIP Load Balancer v1.0.0
 
 Very fast load balancer for _SIP UDP traffic_
 
